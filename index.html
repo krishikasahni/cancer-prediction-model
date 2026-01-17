@@ -48,7 +48,9 @@
             const values = data.map(row => parseFloat(row));
             const min = Math.min(...values);
             const max = Math.max(...values);
-            return values.map(v => (v - min) / (max - min + 1e-8));
+            const range = max - min;
+            if (range === 0) return values.map(() => 0.5);
+            return values.map(v => (v - min) / range);
           };
 
           const handleFileUpload = async (e) => {
@@ -58,15 +60,28 @@
             const parsed = parseCSV(text);
             const targetCol = parsed.headers[parsed.headers.length - 1];
             const featureCols = parsed.headers.slice(0, -1);
+            
+            // Convert M/B to 1/0
+            const processedRows = parsed.rows.map(row => {
+              const newRow = { ...row };
+              const diagValue = row[targetCol];
+              if (diagValue === 'M' || diagValue === 'm' || diagValue === '1') {
+                newRow[targetCol] = '1';
+              } else if (diagValue === 'B' || diagValue === 'b' || diagValue === '0') {
+                newRow[targetCol] = '0';
+              }
+              return newRow;
+            });
+            
             setData({
               headers: parsed.headers,
-              rows: parsed.rows,
+              rows: processedRows,
               featureCols,
               targetCol,
-              numSamples: parsed.rows.length,
+              numSamples: processedRows.length,
               numFeatures: featureCols.length
             });
-            setProgress('Data loaded successfully!');
+            setProgress('Data loaded successfully! (M→1, B→0 converted)');
           };
 
           const trainModels = async () => {
@@ -242,7 +257,12 @@
               const column = data.rows.map(row => parseFloat(row[data.featureCols[i]]) || 0);
               const min = Math.min(...column);
               const max = Math.max(...column);
-              normalizedFeatures.push((features[i] - min) / (max - min + 1e-8));
+              const range = max - min;
+              if (range === 0) {
+                normalizedFeatures.push(0.5);
+              } else {
+                normalizedFeatures.push((features[i] - min) / range);
+              }
             }
             
             const dlPred = await predictDL(models.dl, [normalizedFeatures]);
@@ -265,9 +285,9 @@
             const rfProb = rfProbs.reduce((a, b) => a + b, 0) / rfProbs.length;
             
             setPrediction({
-              deepLearning: { result: dlPred[0], probability: dlProb[0] },
-              logisticRegression: { result: lrPred[0], probability: lrProb },
-              randomForest: { result: rfPred[0], probability: rfProb }
+              deepLearning: { result: dlPred[0], probability: Math.max(0.01, Math.min(0.99, dlProb[0])) },
+              logisticRegression: { result: lrPred[0], probability: Math.max(0.01, Math.min(0.99, lrProb)) },
+              randomForest: { result: rfPred[0], probability: Math.max(0.01, Math.min(0.99, rfProb)) }
             });
           };
 
